@@ -1,0 +1,34 @@
+---
+title: "Final Project Data Memo"
+author: "Vasyl Ostapenko (774 970 8)"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: pdf_document
+---
+```{r setup, echo=FALSE, include=FALSE}
+library(knitr)
+library(tidyverse)
+knitr::opts_chunk$set(fig.width=7, fig.height=5)
+options(digits = 4)
+```
+
+## Dataset Overview
+What does it include?
+Where and how will you be obtaining it? Include the link and source.
+About how many observations? How many predictors?
+What types of variables will you be working with?
+Is there any missing data? About how much? Do you have an idea for how to handle it?
+
+## Research Question Overview
+What variable(s) are you interested in predicting? What question(s) are you interested in answering?
+Name your response/outcome variable(s) and briefly describe it/them.
+Will these questions be best answered with a classification or regression approach?
+Which predictors do you think will be especially useful?
+Is the goal of your model descriptive, predictive, inferential, or a combination? Explain.
+
+## Proposed Project Timeline
+When do you plan on having your data set loaded, beginning your exploratory data analysis, etc?
+Provide a general timeline for the rest of the quarter.
+
+## Potential Concerns
+Are there any problems or difficult aspects of the project you anticipate?
+Any specific questions you have for me/the instructional team?

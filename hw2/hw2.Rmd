@@ -7,11 +7,8 @@ output: pdf_document
 ```{r setup, echo=FALSE, include=FALSE}
 library(knitr)
 library(tidyverse)
+library(tidymodels)
 library(data.table)
-library(recipes)
-library(workflows)
-library(parsnip)
-library(yardstick)
 knitr::opts_chunk$set(fig.width=7, fig.height=5)
 options(digits = 4)
 set.seed(42)
@@ -39,25 +36,24 @@ ggplot(data, aes(x=age)) +
 The variable age displays a right-skewed distribution with a mean around 12 years and standard deviation of around 3 years. 
 
 ### Question 2
-Stratified random sample (using types as strata) with a .70 / .30 training and test split.
+Stratified random sample (using types as strata) with a .80 / .20 training and test split.
 ```{r}
-data$type = as.factor(data$type)
-```
-```{r}
-temp_train = rownames_to_column(data) %>% group_by(type) %>% slice_sample(prop=0.7)
-temp_train$rowname = as.numeric(temp_train$rowname)
-train = data[temp_train$rowname, ] %>% copy()
-test = data[-temp_train$rowname, ] %>% copy()
+abalone_split = data %>%
+  initial_split(prop=0.8, strata="type")
+
+abalone_train = training(abalone_split)
+abalone_test = testing(abalone_split)
 ```
 
 ### Question 3
 ```{r}
-abalone_recipe = recipe(age ~ ., data=train) %>%
+abalone_recipe = recipe(age ~ ., data=abalone_train) %>%
   step_dummy(all_nominal_predictors()) %>%
   step_interact( ~ starts_with("type"):shucked_weight) %>%
   step_interact( ~ longest_shell:diameter) %>%
   step_interact( ~ shucked_weight:shell_weight) %>%
-  step_normalize(all_numeric_predictors())
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
 ```
 
 We shouldn't use rings in predicting age because the two variables are perfectly correlated. We will get a model which will only use rings as the predictor and this will not be useful to us at all.
@@ -79,7 +75,7 @@ abalone_workflow = workflow() %>%
 ### Question 6
 ```{r}
 abalone_fit = abalone_workflow %>%
-  fit(train)
+  fit(abalone_train)
 ```
 ```{r}
 single_sample = list(longest_shell=0.50,
@@ -98,7 +94,8 @@ predict(abalone_fit, single_sample) %>% unlist() %>% unname()
 ```{r}
 multi_metric = metric_set(rsq, rmse, mae)
 
-bound_test_data = bind_cols(predict(abalone_fit, test), test$age)
+bound_test_data = bind_cols(predict(abalone_fit, abalone_test),
+                            abalone_test$age)
 colnames(bound_test_data) = c("Predicted Age", "True Age")
 
 multi_metric(data=bound_test_data,
@@ -106,4 +103,4 @@ multi_metric(data=bound_test_data,
              estimate="Predicted Age")
 ```
 
-Evaluated on the test data, our model performs quite poorly based on the R-squared criterion. At an R-squared of about .54, we have that 54% of the variability in the response is explained by the predictors. To note, we also have a RMSE of 2.13 and MAE of 1.53. As these are absolute measures of model performance, there needs to be more context to the numbers for their proper evaluation.
+Evaluated on the test data, our model performs quite poorly based on the R-squared criterion. At an R-squared of about .52, we have that 52% of the variability in the response is explained by the predictors. To note, we also have a RMSE of 2.30 and MAE of 1.62. As these are absolute measures of model performance, there needs to be more context to the numbers for their proper evaluation.
