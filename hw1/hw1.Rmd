@@ -1,6 +1,6 @@
 ---
 title: "Homework Assignment 1"
-author: "Vasyl Ostapenko (774 970 8)"
+author: "Vasiliy Ostapenko (774 970 8)"
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
 output: pdf_document
 ---
