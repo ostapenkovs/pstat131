@@ -1,0 +1,101 @@
+---
+title: "Final Project"
+author: "Vasiliy Ostapenko (774 970 8)"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: pdf_document
+---
+```{r setup, echo=FALSE, include=FALSE}
+reticulate::use_condaenv(condaenv="tensorflow")
+library(knitr)
+library(tidyverse)
+library(tidymodels)
+library(data.table)
+library(corrplot)
+library(fastDummies)
+library(umap)
+library(dbscan)
+knitr::opts_chunk$set(fig.width=7, fig.height=5, 
+                      warning=FALSE, message=FALSE)
+options(digits = 4)
+set.seed(42)
+```
+
+## DATA
+### Load Data
+```{r}
+DATA_FOLDER = "./data"
+COMBINED_FNAME = file.path(DATA_FOLDER, "combined.csv")
+df = read.csv(COMBINED_FNAME) %>%
+  column_to_rownames("vaersId")
+```
+
+### Visualization
+```{r}
+
+```
+
+### Categorical to Numeric Conversion
+```{r}
+n_df = dummy_cols(df, remove_first_dummy=TRUE, remove_selected_columns=TRUE)
+```
+```{r}
+corrplot(cor(n_df[ , names(n_df) != "myocarditis"]), 
+         method="color", type="lower")
+```
+```{r}
+cols_to_remove = c("s4", "s5", "adminBy_PHM", "adminBy_PUB", "adminBy_PVT", 
+                   "region_West")
+n_df = n_df[ , !(colnames(n_df) %in% cols_to_remove)] %>% copy()
+```
+
+### Dimension Reduction and Clustering
+```{r}
+X = n_df[ , names(n_df) != "myocarditis"] %>% copy()
+y = n_df["myocarditis"] %>% copy()
+
+X = scale(X)
+```
+```{r}
+#umapX = umap(X, method="umap-learn")
+#saveRDS(umapX, "./data/umapX.rds")
+umapX = readRDS("./data/umapX.rds")
+```
+```{r}
+cl = hdbscan(umapX$layout, minPts=5)
+```
+
+### Data Split
+```{r}
+split = n_df %>%
+  initial_split(prop=0.8, strata="myocarditis")
+
+train = training(split)
+test = testing(split)
+```
+
+## MODELING
+### Recipe
+```{r}
+
+```
+
+### Models, Workflows, and Parameters
+```{r}
+
+```
+
+### K-Fold CV
+```{r}
+
+```
+
+### Best Model Determination and Training
+```{r}
+
+```
+
+## EVALUATION
+### Best Model Testing and Evaluation
+```{r}
+
+```
