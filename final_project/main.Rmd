@@ -5,18 +5,15 @@ date: "`r format(Sys.Date(), '%B %d, %Y')`"
 output: pdf_document
 ---
 ```{r setup, echo=FALSE, include=FALSE}
-reticulate::use_condaenv(condaenv="tensorflow")
 library(knitr)
 library(tidyverse)
 library(tidymodels)
-library(data.table)
 library(corrplot)
 library(fastDummies)
-library(umap)
-library(dbscan)
+library(data.table)
 knitr::opts_chunk$set(fig.width=7, fig.height=5, 
                       warning=FALSE, message=FALSE)
-options(digits = 4)
+options(digits=4)
 set.seed(42)
 ```
 
@@ -36,57 +33,120 @@ df = read.csv(COMBINED_FNAME) %>%
 
 ### Categorical to Numeric Conversion
 ```{r}
-n_df = dummy_cols(df, remove_first_dummy=TRUE, remove_selected_columns=TRUE)
+df = fastDummies::dummy_cols(df, remove_first_dummy=TRUE, remove_selected_columns=TRUE)
 ```
 ```{r}
-corrplot(cor(n_df[ , names(n_df) != "myocarditis"]), 
+corrplot(cor(df[ , names(df) != "myocarditis"]), 
          method="color", type="lower")
 ```
 ```{r}
-cols_to_remove = c("s4", "s5", "adminBy_PHM", "adminBy_PUB", "adminBy_PVT", 
-                   "region_West")
-n_df = n_df[ , !(colnames(n_df) %in% cols_to_remove)] %>% copy()
-```
-
-### Dimension Reduction and Clustering
-```{r}
-X = n_df[ , names(n_df) != "myocarditis"] %>% copy()
-y = n_df["myocarditis"] %>% copy()
-
-X = scale(X)
-```
-```{r}
-#umapX = umap(X, method="umap-learn")
-#saveRDS(umapX, "./data/umapX.rds")
-umapX = readRDS("./data/umapX.rds")
-```
-```{r}
-cl = hdbscan(umapX$layout, minPts=5)
+df = df[ , !(colnames(df) %in% c("s4", "s5"))] %>% copy()
+df$myocarditis = as.factor(df$myocarditis)
 ```
 
 ### Data Split
 ```{r}
-split = n_df %>%
-  initial_split(prop=0.8, strata="myocarditis")
+split = df %>%
+  initial_split(prop=0.70, strata="myocarditis")
 
 train = training(split)
 test = testing(split)
+```
+```{r}
+folds = vfold_cv(train, v=3, strata="myocarditis")
 ```
 
 ## MODELING
 ### Recipe
 ```{r}
-
+rec = recipe(myocarditis ~ ., data=train) %>%
+  step_normalize(all_predictors())
 ```
 
-### Models, Workflows, and Parameters
-```{r}
+### Models, Workflows, Parameters, CV
+```{r, eval=FALSE}
+# Logistic Regression
+mod_glm = logistic_reg(penalty=tune(), mixture=tune()) %>%
+  set_engine("glm") %>%
+  set_mode("classification")
 
+work_glm = workflow() %>%
+  add_model(mod_glm) %>%
+  add_recipe(rec)
+
+grid_glm = grid_regular(penalty(), mixture(), levels=2)
+
+tune_glm = work_glm %>%
+  tune_grid(resamples=folds, grid=grid_glm, 
+            metrics=metric_set(roc_auc, accuracy))
+
+save(tune_glm, work_glm, file="./data/tune_glm.rda")
+
+tune_glm %>% collect_metrics() %>% 
+  select(-.estimator, -.config)
 ```
-
-### K-Fold CV
 ```{r}
+# SVM
+mod_svm = svm_rbf(cost=tune(), rbf_sigma=tune()) %>%
+  set_engine("kernlab") %>%
+  set_mode("classification")
 
+work_svm = workflow() %>%
+  add_model(mod_svm) %>%
+  add_recipe(rec)
+
+grid_svm = grid_regular(cost(), rbf_sigma(), levels=2)
+
+tune_svm = work_svm %>%
+  tune_grid(resamples=folds, grid=grid_svm,
+            metrics=metric_set(roc_auc, accuracy))
+
+save(tune_svm, work_svm, file="./data/tune_svm.rda")
+
+tune_svm %>% collect_metrics() %>%
+  select(-.estimator, -.config)
+```
+```{r, eval=FALSE}
+# Random Forest
+mod_rf = rand_forest(min_n=tune()) %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+
+work_rf = workflow() %>%
+  add_model(mod_rf) %>%
+  add_recipe(rec)
+
+grid_rf = grid_regular(min_n(), levels=2)
+
+tune_rf = work_rf %>%
+  tune_grid(resamples=folds, grid=grid_rf,
+            metrics=metric_set(roc_auc, accuracy))
+
+save(tune_rf, work_rf, file="./data/tune_rf.rda")
+
+tune_rf %>% collect_metrics() %>% 
+  select(-.estimator, -.config)
+```
+```{r, eval=FALSE}
+# Boosted Trees
+mod_boost = boost_tree(min_n=tune(), learn_rate=tune()) %>%
+  set_engine("xgboost") %>%
+  set_mode("classification")
+
+work_boost = workflow() %>%
+  add_model(mod_boost) %>%
+  add_recipe(rec)
+
+grid_boost = grid_regular(min_n(), learn_rate(), levels=2)
+
+tune_boost = work_boost %>%
+  tune_grid(resamples=folds, grid=grid_boost, 
+            metrics=metric_set(roc_auc, accuracy))
+
+save(tune_boost, work_boost, file="./data/tune_boost.rda")
+
+tune_boost %>% collect_metrics() %>% 
+  select(-.estimator, -.config)
 ```
 
 ### Best Model Determination and Training
