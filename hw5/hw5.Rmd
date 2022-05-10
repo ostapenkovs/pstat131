@@ -1,89 +1,142 @@
 ---
-title: "Homework 5"
-author: "PSTAT 131/231"
-output:
-    html_document:
-      toc: true
-      toc_float: true
-      code_folding: show
+title: "Homework Assignment 5"
+author: "Vasiliy Ostapenko (774 970 8)"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: pdf_document
 ---
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message = FALSE,
-                      warning = FALSE)
+```{r setup, echo=FALSE, include=FALSE}
+library(knitr)
+library(tidyverse)
+library(plyr)
+library(tidymodels)
+library(data.table)
+library(janitor)
+knitr::opts_chunk$set(fig.width=7, fig.height=5, 
+                      warning=FALSE, message=FALSE)
+options(digits=4)
+set.seed(42)
 ```
 
-## Elastic Net Tuning
-
-For this assignment, we will be working with the file `"pokemon.csv"`, found in `/data`. The file is from Kaggle: <https://www.kaggle.com/abcsds/pokemon>.
-
-The [Pokémon](https://www.pokemon.com/us/) franchise encompasses video games, TV shows, movies, books, and a card game. This data set was drawn from the video game series and contains statistics about 721 Pokémon, or "pocket monsters." In Pokémon games, the user plays as a trainer who collects, trades, and battles Pokémon to (a) collect all the Pokémon and (b) become the champion Pokémon trainer.
-
-Each Pokémon has a [primary type](https://bulbapedia.bulbagarden.net/wiki/Type) (some even have secondary types). Based on their type, a Pokémon is strong against some types, and vulnerable to others. (Think rock, paper, scissors.) A Fire-type Pokémon, for example, is vulnerable to Water-type Pokémon, but strong against Grass-type.
-
-![Fig 1. Vulpix, a Fire-type fox Pokémon from Generation 1.](images/vulpix.png){width="196"}
-
-The goal of this assignment is to build a statistical learning model that can predict the **primary type** of a Pokémon based on its generation, legendary status, and six battle statistics.
-
-Read in the file and familiarize yourself with the variables using `pokemon_codebook.txt`.
+### Data
+```{r}
+DATA_FOLDER = "./data"
+POKEMON_FNAME = file.path(DATA_FOLDER, "pokemon.csv")
+df = read.csv(POKEMON_FNAME)
+```
 
 ### Exercise 1
+```{r}
+df = df %>% clean_names()
+```
 
-Install and load the `janitor` package. Use its `clean_names()` function on the Pokémon data, and save the results to work with for the rest of the assignment. What happened to the data? Why do you think `clean_names()` is useful?
+Column names are modified to only contain underscores and alphanumeric characters. Spaces and dots, for instance, become underscores. Camel case is used to format names which contain multiple words. This function is useful becomes columns become easier to access by name.
 
 ### Exercise 2
+```{r}
+g1 = ggplot(data=df, aes(x=type_1)) +
+  geom_bar(stat="count") +
+  coord_flip()
+g1
+```
 
-Using the entire data set, create a bar chart of the outcome variable, `type_1`.
+There are `r length(unique(df$type_1))` unique classes of type_1. Flying type, for instance, has very few pokemon.
 
-How many classes of the outcome are there? Are there any Pokémon types with very few Pokémon? If so, which ones?
-
-For this assignment, we'll handle the rarer classes by simply filtering them out. Filter the entire data set to contain only Pokémon whose `type_1` is Bug, Fire, Grass, Normal, Water, or Psychic.
-
-After filtering, convert `type_1` and `legendary` to factors.
+```{r}
+df = df[df$type_1 %in% 
+          c("Bug", "Fire", "Grass", 
+            "Normal", "Water", "Psychic"), ] %>% copy()
+df$type_1 = as.factor(df$type_1)
+df$legendary = as.factor(df$legendary)
+df$generation = as.factor(df$generation)
+```
 
 ### Exercise 3
+```{r}
+p_split = df %>%
+  initial_split(prop=0.8, strata="type_1")
 
-Perform an initial split of the data. Stratify by the outcome variable. You can choose a proportion to use. Verify that your training and test sets have the desired number of observations.
+p_train = training(p_split)
+p_test = testing(p_split)
+```
+```{r}
+p_folds = vfold_cv(p_train, v=5, strata="type_1")
+```
 
-Next, use *v*-fold cross-validation on the training set. Use 5 folds. Stratify the folds by `type_1` as well. *Hint: Look for a `strata` argument.* Why might stratifying the folds be useful?
+Stratifying the folds will ensure that we will have a representative number of each class on which to train the model. Thus model performance for training and validation should be similar.
 
 ### Exercise 4
-
-Set up a recipe to predict `type_1` with `legendary`, `generation`, `sp_atk`, `attack`, `speed`, `defense`, `hp`, and `sp_def`.
-
-- Dummy-code `legendary` and `generation`;
-
-- Center and scale all predictors.
+```{r}
+p_rec = recipe(type_1 ~ legendary + generation + sp_atk + attack +
+               speed + defense + hp + sp_def, data=p_train) %>%
+  step_dummy(c("legendary", "generation")) %>%
+  step_normalize(all_predictors())
+```
 
 ### Exercise 5
+```{r}
+p_mod = multinom_reg(penalty=tune(), mixture=tune()) %>%
+  set_engine("glmnet") %>%
+  set_mode("classification")
 
-We'll be fitting and tuning an elastic net, tuning `penalty` and `mixture` (use `multinom_reg` with the `glmnet` engine).
+p_work = workflow() %>%
+  add_model(p_mod) %>%
+  add_recipe(p_rec)
+```
+```{r}
+p_grid = grid_regular(penalty(range=c(-5, 5)), 
+                      mixture(range=c(0, 1)), levels=10)
+```
 
-Set up this model and workflow. Create a regular grid for `penalty` and `mixture` with 10 levels each; `mixture` should range from 0 to 1. For this assignment, we'll let `penalty` range from -5 to 5 (it's log-scaled).
-
-How many total models will you be fitting when you fit these models to your folded data?
+We will be fitting a total of 500 models. 10 levels for penalty times 10 levels for mixture times 5 CV folds.
 
 ### Exercise 6
+```{r}
+p_tune = p_work %>%
+  tune_grid(resamples=p_folds, grid=p_grid, metrics=metric_set(roc_auc))
 
-Fit the models to your folded data using `tune_grid()`.
+save(p_tune, p_work, file="./data/tune.rda")
+```
+```{r}
+autoplot(p_tune, metric="roc_auc")
+```
 
-Use `autoplot()` on the results. What do you notice? Do larger or smaller values of `penalty` and `mixture` produce better accuracy and ROC AUC?
+Penalty should be very negative and mixture should be close to zero to get as large value for ROC AUC as possible.
 
 ### Exercise 7
+```{r}
+p_best = p_tune %>%
+  select_best("roc_auc")
 
-Use `select_best()` to choose the model that has the optimal `roc_auc`. Then use `finalize_workflow()`, `fit()`, and `augment()` to fit the model to the training set and evaluate its performance on the testing set.
+p_work_final = p_work %>%
+  finalize_workflow(p_best)
+```
+```{r}
+p_fit = p_work_final %>%
+  fit(p_train)
+```
+```{r}
+p_predict = augment(p_fit, p_test)
+```
 
 ### Exercise 8
+```{r}
+test_roc_auc = roc_auc(data=p_predict, 
+                       truth=type_1, 
+                       estimate=c(.pred_Bug, .pred_Fire, .pred_Grass, 
+                                  .pred_Normal, .pred_Psychic, .pred_Water), 
+                       estimator="macro_weighted")
+test_roc_auc$.estimate
+```
+```{r}
+test_curves = roc_curve(data=p_predict, 
+                        truth=type_1, 
+                        estimate=c(.pred_Bug, .pred_Fire, .pred_Grass, 
+                                    .pred_Normal, .pred_Psychic, .pred_Water))
+autoplot(test_curves)
+```
+```{r}
+conf_mtx = conf_mat(data=p_predict, truth=type_1, estimate=.pred_class)
+heatmap(conf_mtx$table)
+```
 
-Calculate the overall ROC AUC on the testing set.
-
-Then create plots of the different ROC curves, one per level of the outcome. Also make a heat map of the confusion matrix.
-
-What do you notice? How did your model do? Which Pokemon types is the model best at predicting, and which is it worst at? Do you have any ideas why this might be?
-
-## For 231 Students
-
-### Exercise 9
-
-In the 2020-2021 season, Stephen Curry, an NBA basketball player, made 337 out of 801 three point shot attempts (42.1%). Use bootstrap resampling on a sequence of 337 1’s (makes) and 464 0’s (misses). For each bootstrap sample, compute and save the sample mean (e.g. bootstrap FG% for the player). Use 1000 bootstrap samples to plot a histogram of those values. Compute the 99% bootstrap confidence interval for Stephen Curry’s “true” end-of-season
-FG% using the quantile function in R. Print the endpoints of this interval.
+Given a test-set ROC AUC of about 68%, the model's performance is very poor. Moreover, looking at the individual ROC AUC curves, as well as the confusion matrix, we can state that we predict only psychic, normal and bug classes well. The model evidently has problems distinguishing the other three types, namely water, grass and fire. Some common mistakes include confusing: grass and bug; water and essentially every other class. The reasons for this poor performance, in general, would have to be that we do not have enough useful features per sample, and that we need more samples.
