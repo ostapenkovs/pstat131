@@ -11,7 +11,7 @@ library(tidymodels)
 library(corrplot)
 library(fastDummies)
 library(data.table)
-knitr::opts_chunk$set(fig.width=7, fig.height=5, 
+knitr::opts_chunk$set(fig.width=4, fig.height=3, 
                       warning=FALSE, message=FALSE)
 options(digits=4)
 set.seed(42)
@@ -36,30 +36,30 @@ df = read.csv(COMBINED_FNAME) %>%
 df = fastDummies::dummy_cols(df, remove_first_dummy=TRUE, remove_selected_columns=TRUE)
 ```
 ```{r}
-corrplot(cor(df[ , names(df) != "myocarditis"]), 
+corrplot(cor(df[ , names(df) != "recovered_Y"]), 
          method="color", type="lower")
 ```
 ```{r}
 df = df[ , !(colnames(df) %in% c("s4", "s5"))] %>% copy()
-df$myocarditis = as.factor(df$myocarditis)
+df$recovered_Y = as.factor(df$recovered_Y)
 ```
 
 ### Data Split
 ```{r}
 split = df %>%
-  initial_split(prop=0.70, strata="myocarditis")
+  initial_split(prop=0.70, strata="recovered_Y")
 
 train = training(split)
 test = testing(split)
 ```
 ```{r}
-folds = vfold_cv(train, v=3, strata="myocarditis")
+folds = vfold_cv(train, v=3, strata="recovered_Y")
 ```
 
 ## MODELING
 ### Recipe
 ```{r}
-rec = recipe(myocarditis ~ ., data=train) %>%
+rec = recipe(recovered_Y ~ ., data=train) %>%
   step_normalize(all_predictors())
 ```
 
@@ -183,14 +183,15 @@ load(file="./data/fit_rf.rda")
 predict_rf = augment(fit_rf, test)
 ```
 ```{r}
-roc_auc(data=predict_rf, truth=myocarditis,
+roc_auc(data=predict_rf, truth=recovered_Y,
         estimate=.pred_1, event_level="second")
 ```
 ```{r}
-accuracy(data=predict_rf, truth=myocarditis,
+accuracy(data=predict_rf, truth=recovered_Y,
          estimate=.pred_class)
 ```
 ```{r}
-conf_mat(data=predict_rf, truth=myocarditis,
-         estimate=.pred_class)
+conf_mtx = conf_mat(data=predict_rf, truth=recovered_Y,
+                    estimate=.pred_class)
+heatmap(conf_mtx$table)
 ```
