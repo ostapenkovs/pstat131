@@ -81,11 +81,14 @@ tune_glm = work_glm %>%
             metrics=metric_set(roc_auc, accuracy))
 
 save(tune_glm, work_glm, file="./data/tune_glm.rda")
-
+```
+```{r}
+load(file="./data/tune_glm.rda")
 tune_glm %>% collect_metrics() %>% 
   select(-.estimator, -.config)
 ```
-```{r}
+
+```{r, eval=FALSE}
 # SVM
 mod_svm = svm_rbf(cost=tune(), rbf_sigma=tune()) %>%
   set_engine("kernlab") %>%
@@ -102,10 +105,13 @@ tune_svm = work_svm %>%
             metrics=metric_set(roc_auc, accuracy))
 
 save(tune_svm, work_svm, file="./data/tune_svm.rda")
-
+```
+```{r}
+load(file="./data/tune_svm.rda")
 tune_svm %>% collect_metrics() %>%
   select(-.estimator, -.config)
 ```
+
 ```{r, eval=FALSE}
 # Random Forest
 mod_rf = rand_forest(min_n=tune()) %>%
@@ -123,10 +129,13 @@ tune_rf = work_rf %>%
             metrics=metric_set(roc_auc, accuracy))
 
 save(tune_rf, work_rf, file="./data/tune_rf.rda")
-
+```
+```{r}
+load(file="./data/tune_rf.rda")
 tune_rf %>% collect_metrics() %>% 
   select(-.estimator, -.config)
 ```
+
 ```{r, eval=FALSE}
 # Boosted Trees
 mod_boost = boost_tree(min_n=tune(), learn_rate=tune()) %>%
@@ -144,18 +153,44 @@ tune_boost = work_boost %>%
             metrics=metric_set(roc_auc, accuracy))
 
 save(tune_boost, work_boost, file="./data/tune_boost.rda")
-
+```
+```{r}
+load(file="./data/tune_boost.rda")
 tune_boost %>% collect_metrics() %>% 
   select(-.estimator, -.config)
 ```
 
 ### Best Model Determination and Training
-```{r}
+```{r, eval=FALSE}
+tune_rf_best = tune_rf %>%
+  select_best("roc_auc")
 
+work_rf_final = work_rf %>%
+  finalize_workflow(tune_rf_best)
+
+fit_rf = work_rf_final %>%
+  fit(train)
+
+save(fit_rf, file="./data/fit_rf.rda")
 ```
 
 ## EVALUATION
 ### Best Model Testing and Evaluation
 ```{r}
-
+load(file="./data/fit_rf.rda")
+```
+```{r}
+predict_rf = augment(fit_rf, test)
+```
+```{r}
+roc_auc(data=predict_rf, truth=myocarditis,
+        estimate=.pred_1, event_level="second")
+```
+```{r}
+accuracy(data=predict_rf, truth=myocarditis,
+         estimate=.pred_class)
+```
+```{r}
+conf_mat(data=predict_rf, truth=myocarditis,
+         estimate=.pred_class)
 ```
