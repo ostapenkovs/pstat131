@@ -11,6 +11,8 @@ library(tidymodels)
 library(corrplot)
 library(fastDummies)
 library(data.table)
+library(ggridges)
+library(vcd)
 knitr::opts_chunk$set(fig.width=4, fig.height=3, 
                       warning=FALSE, message=FALSE)
 options(digits=4)
@@ -28,7 +30,28 @@ df = read.csv(COMBINED_FNAME) %>%
 
 ### Visualization
 ```{r}
-
+# Plot 1
+g1 = ggplot(df, aes(x=sex, y=age, fill=as.factor(recovered))) + 
+  geom_boxplot()
+g1
+```
+```{r}
+# Plot 2
+g2 = ggplot(df, aes(x=as.factor(region), y=nCovidVax, fill=as.factor(recovered))) +
+  geom_violin()
+g2
+```
+```{r}
+# Plot 3
+g3 = ggplot(df[!(df$otherMeds %in% c(0, 1)), ], aes(x=otherMeds, y=as.factor(recovered), fill=as.factor(recovered))) +
+  geom_density_ridges() +
+  theme_ridges()
+g3
+```
+```{r}
+# Plot 4
+p4 = mosaic(~myocarditis+sex, data=df, shade=TRUE, legend=TRUE)
+p4
 ```
 
 ### Categorical to Numeric Conversion
@@ -40,7 +63,7 @@ corrplot(cor(df[ , names(df) != "recovered_Y"]),
          method="color", type="lower")
 ```
 ```{r}
-df = df[ , !(colnames(df) %in% c("s4", "s5"))] %>% copy()
+df = df[ , !(colnames(df) %in% c("myocarditis"))] %>% copy()
 df$recovered_Y = as.factor(df$recovered_Y)
 ```
 
@@ -64,7 +87,7 @@ rec = recipe(recovered_Y ~ ., data=train) %>%
 ```
 
 ### Models, Workflows, Parameters, CV
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 # Logistic Regression
 mod_glm = logistic_reg(penalty=tune(), mixture=tune()) %>%
   set_engine("glm") %>%
@@ -74,7 +97,7 @@ work_glm = workflow() %>%
   add_model(mod_glm) %>%
   add_recipe(rec)
 
-grid_glm = grid_regular(penalty(), mixture(), levels=2)
+grid_glm = grid_regular(penalty(), mixture(), levels=5)
 
 tune_glm = work_glm %>%
   tune_grid(resamples=folds, grid=grid_glm, 
@@ -88,9 +111,9 @@ tune_glm %>% collect_metrics() %>%
   select(-.estimator, -.config)
 ```
 
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 # SVM
-mod_svm = svm_rbf(cost=tune(), rbf_sigma=tune()) %>%
+mod_svm = svm_poly(cost=tune(), degree=tune()) %>%
   set_engine("kernlab") %>%
   set_mode("classification")
 
@@ -98,7 +121,7 @@ work_svm = workflow() %>%
   add_model(mod_svm) %>%
   add_recipe(rec)
 
-grid_svm = grid_regular(cost(), rbf_sigma(), levels=2)
+grid_svm = grid_regular(cost(), degree(), levels=2)
 
 tune_svm = work_svm %>%
   tune_grid(resamples=folds, grid=grid_svm,
@@ -112,9 +135,9 @@ tune_svm %>% collect_metrics() %>%
   select(-.estimator, -.config)
 ```
 
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 # Random Forest
-mod_rf = rand_forest(min_n=tune()) %>%
+mod_rf = rand_forest(min_n=tune(), mtry=tune()) %>%
   set_engine("ranger") %>%
   set_mode("classification")
 
@@ -122,7 +145,7 @@ work_rf = workflow() %>%
   add_model(mod_rf) %>%
   add_recipe(rec)
 
-grid_rf = grid_regular(min_n(), levels=2)
+grid_rf = grid_regular(min_n(), mtry(range=c(1, 14)), levels=2)
 
 tune_rf = work_rf %>%
   tune_grid(resamples=folds, grid=grid_rf,
@@ -136,9 +159,9 @@ tune_rf %>% collect_metrics() %>%
   select(-.estimator, -.config)
 ```
 
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 # Boosted Trees
-mod_boost = boost_tree(min_n=tune(), learn_rate=tune()) %>%
+mod_boost = boost_tree(min_n=tune(), learn_rate=tune(), mtry=tune()) %>%
   set_engine("xgboost") %>%
   set_mode("classification")
 
@@ -146,7 +169,7 @@ work_boost = workflow() %>%
   add_model(mod_boost) %>%
   add_recipe(rec)
 
-grid_boost = grid_regular(min_n(), learn_rate(), levels=2)
+grid_boost = grid_regular(min_n(), learn_rate(), mtry(range=c(1, 14)), levels=3)
 
 tune_boost = work_boost %>%
   tune_grid(resamples=folds, grid=grid_boost, 
@@ -161,37 +184,37 @@ tune_boost %>% collect_metrics() %>%
 ```
 
 ### Best Model Determination and Training
-```{r, eval=FALSE}
-tune_rf_best = tune_rf %>%
+```{r, eval=TRUE}
+tune_best = tune_rf %>%
   select_best("roc_auc")
 
-work_rf_final = work_rf %>%
-  finalize_workflow(tune_rf_best)
+work_final = work_rf %>%
+  finalize_workflow(tune_best)
 
-fit_rf = work_rf_final %>%
+fit_best = work_final %>%
   fit(train)
 
-save(fit_rf, file="./data/fit_rf.rda")
+save(fit_best, file="./data/fit_best.rda")
 ```
 
 ## EVALUATION
 ### Best Model Testing and Evaluation
 ```{r}
-load(file="./data/fit_rf.rda")
+load(file="./data/fit_best.rda")
 ```
 ```{r}
-predict_rf = augment(fit_rf, test)
+predict_best = augment(fit_best, test)
 ```
 ```{r}
-roc_auc(data=predict_rf, truth=recovered_Y,
+roc_auc(data=predict_best, truth=recovered_Y,
         estimate=.pred_1, event_level="second")
 ```
 ```{r}
-accuracy(data=predict_rf, truth=recovered_Y,
+accuracy(data=predict_best, truth=recovered_Y,
          estimate=.pred_class)
 ```
 ```{r}
-conf_mtx = conf_mat(data=predict_rf, truth=recovered_Y,
+conf_mtx = conf_mat(data=predict_best, truth=recovered_Y,
                     estimate=.pred_class)
-heatmap(conf_mtx$table)
+conf_mtx$table
 ```
