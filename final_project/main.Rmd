@@ -2,9 +2,43 @@
 title: "Final Project"
 author: "Vasiliy Ostapenko (774 970 8)"
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
-output: pdf_document
+output: 
+  pdf_document
+  html_document:
+    code_folding: hide
 ---
-```{r setup, echo=FALSE, include=FALSE}
+
+## INTRO
+The purpose of this project is to generate a model that will predict whether a person recovered from their vaccine side effects given features about the person, the vaccine, and their symptoms.
+
+### What is VAERS?
+The Vaccine Adverse Effect Reporting System (VAERS) database is a joint effort by the FDA and the CDC to provide a system for reporting both minor and serious events related to vaccines. In this project, I will be using the VAERS dataset for calendar year 2021.  One could find further information as well as the data at the following link: https://vaers.hhs.gov/data.html. The data is split into three tables, called "data", "symptoms", and "vaccine", respectively. Each row of every table is a separate event, with a unique ID attached. The unique event ID could be used to map between the three tables. The "data" table also provides information on the patient, their symptoms, and their treatment. The "symptoms" table additionally lists symptoms related to each event in further detail and codes them in the internationally-accepted medDRA format. Finally, the "vaccine" table gives further information on the vaccine related to each event.
+
+### Prior preprocessing
+Before building the R predictive models, I leveraged Python to preprocess and clean the data. This choice was made due to the language's capability and the fact that some useful functions (implemented in various packages) are not easily replicated in R. In two Jupyter notebooks (process_pt1.ipynb, process_pt2.ipynb), I read in the three tables, one at a time, and transformed the data for use in a machine learning context. I remapped categorical data to numeric equivalents, filtered none-type values, created some derived columns to remove redundant features, and so on. Finally, after negotiating duplicate rows, I merged the three tables into one frame (combined.csv), which is used here.
+
+### Why might this model be useful?
+A healthcare provider might encounter a patient presenting with vaccine side effects. They might note the patient profile, the vaccine type, as well as some of the symptoms. Using this model, they might be able to predict whether the person will recover from their ailments.
+
+## DATA
+### Load Data
+* Dataset variables (included in codebook):
+  + vaersId: unique identifier for an instance of an adverse effect
+  + age: patient age
+  + sex: patient sex
+  + recovered: indicator, whether patient recovered
+  + deltaOnset: time between vaccination and symptom onset
+  + adminBy: dummy-coded, type of healthcare provider who administered vaccine
+  + otherMeds: dummy-coded, type of medications the patient is on
+  + history: dummy-coded, type of prior patient history
+  + region: dummy-coded, US region to which the patient's state belongs
+  + deltaReceived: time between symptom onset and receipt of VAERS report
+  + nCovidVax: number of COVID vaccine doses the patient received
+  + s1-s5: dummy-coded, first five symptoms the patient experienced
+  + myocarditis: indicator, whether patient experienced myocarditis
+
+```{r setup, echo=FALSE, include=TRUE}
+# Load packages
 library(knitr)
 library(tidyverse)
 library(tidymodels)
@@ -13,15 +47,16 @@ library(fastDummies)
 library(data.table)
 library(ggridges)
 library(vcd)
+
+# Set chunk options and random seed
 knitr::opts_chunk$set(fig.width=4, fig.height=3, 
                       warning=FALSE, message=FALSE)
 options(digits=4)
 set.seed(42)
 ```
 
-## DATA
-### Load Data
 ```{r}
+# Read in data
 DATA_FOLDER = "./data"
 COMBINED_FNAME = file.path(DATA_FOLDER, "combined.csv")
 df = read.csv(COMBINED_FNAME) %>%
@@ -29,18 +64,23 @@ df = read.csv(COMBINED_FNAME) %>%
 ```
 
 ### Visualization
+The first plot is a boxplot of sex by age, colored by recovered. I believe that younger people will be more likely to recover from their symptoms.
 ```{r}
 # Plot 1
 g1 = ggplot(df, aes(x=sex, y=age, fill=as.factor(recovered))) + 
   geom_boxplot()
 g1
 ```
+
+The second plot is a violin plot of region by nCovidVax, colored by recovered. I believe that there will be regional differences in vaccination rates. I also think that there might be a relationship between number of covid vaccine doses and ability to recover.
 ```{r}
 # Plot 2
 g2 = ggplot(df, aes(x=as.factor(region), y=nCovidVax, fill=as.factor(recovered))) +
   geom_violin()
 g2
 ```
+
+The third plot is a ridge plot of otherMeds, split by recovered. I believe that there might be a difference in the types of medications people who recover and people who don't are on. Perhaps younger, healthier individuals who recover will tend to not need the same medications as older, sicker people.
 ```{r}
 # Plot 3
 g3 = ggplot(df[!(df$otherMeds %in% c(0, 1)), ], aes(x=otherMeds, y=as.factor(recovered), fill=as.factor(recovered))) +
@@ -48,6 +88,8 @@ g3 = ggplot(df[!(df$otherMeds %in% c(0, 1)), ], aes(x=otherMeds, y=as.factor(rec
   theme_ridges()
 g3
 ```
+
+The fourth, and final, plot is a mosaic plot of myocarditis by sex. I believe that there is a relationship between vaccine induced myocarditis and sex.
 ```{r}
 # Plot 4
 p4 = mosaic(~myocarditis+sex, data=df, shade=TRUE, legend=TRUE)
@@ -55,38 +97,46 @@ p4
 ```
 
 ### Categorical to Numeric Conversion
+Before we get started with the data splitting and model building, I will convert the two remaining categorical variables, sex and recovered, into numeric dummies.
 ```{r}
 df = fastDummies::dummy_cols(df, remove_first_dummy=TRUE, remove_selected_columns=TRUE)
 ```
+
+I will also inspect the column by column correlation to remove redundant features which are correlated with some other columns.
 ```{r}
 corrplot(cor(df[ , names(df) != "recovered_Y"]), 
          method="color", type="lower")
 ```
+
+From the plot, we glean that the myocarditis column is highly correlated with s4 and s5 columns. Thus it will be removed.
 ```{r}
 df = df[ , !(colnames(df) %in% c("myocarditis"))] %>% copy()
 df$recovered_Y = as.factor(df$recovered_Y)
 ```
 
 ### Data Split
-```{r}
+I will split the data using a 70/30 train and test split. I will also use 3-fold cross validation when I am fitting my models and tuning hyperparameters.
+```{r class.source = 'fold-show'}
 split = df %>%
   initial_split(prop=0.70, strata="recovered_Y")
 
 train = training(split)
 test = testing(split)
-```
-```{r}
 folds = vfold_cv(train, v=3, strata="recovered_Y")
 ```
 
 ## MODELING
 ### Recipe
-```{r}
+Due to the extensive prior preprocessing, the only intermediate step in the recipe will be to normalize all predictors. Normalization enables gradient descent to converge faster and to the correct minimum.
+```{r class.source = 'fold-show'}
 rec = recipe(recovered_Y ~ ., data=train) %>%
   step_normalize(all_predictors())
 ```
 
 ### Models, Workflows, Parameters, CV
+For the classification task, I will fit the following models to the training data: logistic regression; SVM poly kernel; random forest; boosted trees.
+
+For the logistic regression model, I will tune the penalty and mixture hyperparameters, at 5 levels each for a total of 75 models fit.
 ```{r, eval=FALSE}
 # Logistic Regression
 mod_glm = logistic_reg(penalty=tune(), mixture=tune()) %>%
@@ -111,6 +161,7 @@ tune_glm %>% collect_metrics() %>%
   select(-.estimator, -.config)
 ```
 
+For the SVM model, I will tune the cost and degree hyperparameters, at 2 levels each for a total of 12 models fit.
 ```{r, eval=TRUE}
 # SVM
 mod_svm = svm_poly(cost=tune(), degree=tune()) %>%
@@ -135,6 +186,7 @@ tune_svm %>% collect_metrics() %>%
   select(-.estimator, -.config)
 ```
 
+For the RF model, I will tune the min_n and mtry hyperparameters, at 2 levels each, for a total of 12 models fit.
 ```{r, eval=FALSE}
 # Random Forest
 mod_rf = rand_forest(min_n=tune(), mtry=tune()) %>%
@@ -159,6 +211,7 @@ tune_rf %>% collect_metrics() %>%
   select(-.estimator, -.config)
 ```
 
+Finally, for the boosted trees model, I will tune min_n, learn_rate, and mtry. 3 levels each means we will fit a total of 81 models.
 ```{r, eval=FALSE}
 # Boosted Trees
 mod_boost = boost_tree(min_n=tune(), learn_rate=tune(), mtry=tune()) %>%
@@ -184,7 +237,8 @@ tune_boost %>% collect_metrics() %>%
 ```
 
 ### Best Model Determination and Training
-```{r, eval=TRUE}
+Looking at each models accuracy and AUC ROC metrics, we determine that the best performance was achieved by the random forest class of models. Thus, we will pick the best random forest model, fit it to the entire training set, and save it.
+```{r class.source = 'fold-show', eval=TRUE}
 tune_best = tune_rf %>%
   select_best("roc_auc")
 
@@ -199,6 +253,7 @@ save(fit_best, file="./data/fit_best.rda")
 
 ## EVALUATION
 ### Best Model Testing and Evaluation
+Finally, after training the RF model, we can fit it to the test set and evaluate some performance metrics.
 ```{r}
 load(file="./data/fit_best.rda")
 ```
@@ -218,3 +273,6 @@ conf_mtx = conf_mat(data=predict_best, truth=recovered_Y,
                     estimate=.pred_class)
 conf_mtx$table
 ```
+
+## CONCLUSION
+The VAERS dataset was very interesting due to its novelty for me and gave me a good challenge in working with complicated data as well as the tidymodels workflow. Predicting recovery turned out to be a more difficult task than I had thought, and further efforts are required to build a high-performing model. Perhaps there are better ways to treat patient medication, medical history, and symptom information. Still, I was not surprised that the tree-based methods performed better than others, given their famed status.
