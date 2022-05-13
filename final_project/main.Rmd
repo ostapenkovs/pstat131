@@ -87,7 +87,7 @@ rec = recipe(recovered_Y ~ ., data=train) %>%
 ```
 
 ### Models, Workflows, Parameters, CV
-```{r, eval=TRUE}
+```{r, eval=FALSE}
 # Logistic Regression
 mod_glm = logistic_reg(penalty=tune(), mixture=tune()) %>%
   set_engine("glm") %>%
@@ -135,7 +135,7 @@ tune_svm %>% collect_metrics() %>%
   select(-.estimator, -.config)
 ```
 
-```{r, eval=TRUE}
+```{r, eval=FALSE}
 # Random Forest
 mod_rf = rand_forest(min_n=tune(), mtry=tune()) %>%
   set_engine("ranger") %>%
@@ -159,7 +159,7 @@ tune_rf %>% collect_metrics() %>%
   select(-.estimator, -.config)
 ```
 
-```{r, eval=TRUE}
+```{r, eval=FALSE}
 # Boosted Trees
 mod_boost = boost_tree(min_n=tune(), learn_rate=tune(), mtry=tune()) %>%
   set_engine("xgboost") %>%
