@@ -2,8 +2,8 @@
 title: "Final Project"
 author: "Vasiliy Ostapenko (774 970 8)"
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
-output: 
-  pdf_document
+output:
+  pdf_document: default
   html_document:
     code_folding: hide
 ---
@@ -37,7 +37,7 @@ A healthcare provider might encounter a patient presenting with vaccine side eff
   + s1-s5: dummy-coded, first five symptoms the patient experienced
   + myocarditis: indicator, whether patient experienced myocarditis
 
-```{r setup, echo=FALSE, include=TRUE}
+```{r setup, echo=FALSE, include=FALSE}
 # Load packages
 library(knitr)
 library(tidyverse)
@@ -162,7 +162,7 @@ tune_glm %>% collect_metrics() %>%
 ```
 
 For the SVM model, I will tune the cost and degree hyperparameters, at 2 levels each for a total of 12 models fit.
-```{r, eval=TRUE}
+```{r, eval=FALSE}
 # SVM
 mod_svm = svm_poly(cost=tune(), degree=tune()) %>%
   set_engine("kernlab") %>%
@@ -180,7 +180,7 @@ tune_svm = work_svm %>%
 
 save(tune_svm, work_svm, file="./data/tune_svm.rda")
 ```
-```{r}
+```{r, eval=FALSE}
 load(file="./data/tune_svm.rda")
 tune_svm %>% collect_metrics() %>%
   select(-.estimator, -.config)
@@ -238,7 +238,7 @@ tune_boost %>% collect_metrics() %>%
 
 ### Best Model Determination and Training
 Looking at each models accuracy and AUC ROC metrics, we determine that the best performance was achieved by the random forest class of models. Thus, we will pick the best random forest model, fit it to the entire training set, and save it.
-```{r class.source = 'fold-show', eval=TRUE}
+```{r class.source = 'fold-show', eval=FALSE}
 tune_best = tune_rf %>%
   select_best("roc_auc")
 

@@ -5,3 +5,5 @@
 *.html
 
 2021VAERSData
+
+!main.html
