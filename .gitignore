@@ -2,8 +2,9 @@
 .RHistory
 .RData
 .DS_Store
-*.html
 
-2021VAERSData
+final_project/data/unprocessed/*
 
-!main.html
+final_project/data/processed/*
+!final_project/data/processed/combined.csv
+!final_project/data/processed/vaers_codebook.txt
